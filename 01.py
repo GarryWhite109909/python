@@ -7,7 +7,6 @@ MQTT服务器 => 菜鸟驿站(统一中转站)
 import json
 # 看时间
 import time
-# 物流信息的盒子
 # 如果说,这个包没有,报错了,那么我们需要将这个包给下载下来
 # pip install paho-mqtt -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
 import paho.mqtt.client as mqtt
@@ -44,11 +43,30 @@ def pull_rod1(client):
 # 1. 启动传送带
 client.publish("aa", json.dumps({"conveyor": "run"}))
 print("已发送，启动传送带")
-time.sleep(2)
+time.sleep(10)
 
 # 2. 连续推拉 10 次
 for i in range(10):
+    print(f"第{i+1}次推拉")
     push_rod1(client)
     time.sleep(2)
     pull_rod1(client)
     time.sleep(2)
+client.publish("aa", json.dumps({"conveyor": "stop"}))
+print("停止传送带")
+
+# 推拉完成之后,开始监听传感数据
+while True:
+    # 如果说消息盒子里面还有东西,那么就一直取
+    if received_message:
+        # 取,都是取出第一条
+        msg_data = received_message.pop(0)
+        # 如果说: msg_data 是图片,那么就获取图片
+        if 'image' in msg_data:
+            print("图片数据",msg_data['image'])
+        # 还有一个叫做传感器的状态
+        if 'first_switch' in msg_data:
+            print("传感器的状态",msg_data['first_switch'])
+
+    # 小延时
+    time.sleep(0.01)

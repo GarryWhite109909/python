@@ -11,8 +11,8 @@ import time
 received_messages = []
 # 定义个回调函数,当接收消息的时候执行
 def on_message(client,userdata,msg):
-    received_messages.append(msg.payload.decode())
-
+    # received_messages.append(msg.payload.decode())
+    received_messages.append(json.loads(msg.payload.decode()))
 # 创建一个MQTT的客户端
 client = mqtt.Client()
 # 设置接收消息的回调函数
@@ -40,7 +40,6 @@ def GetCvImage(jsonMsg,key):
     image = cv2.imdecode(image_array,cv2.IMREAD_COLOR)
     # 返回处理好的图片
     return image
-
 # 将设备传回来的图片,要存储到一个文件夹,叫做data
 def make_dir(folder_path):
     # 检查folder_path是否存在
@@ -56,3 +55,28 @@ def make_dir(folder_path):
 # 设置一个存储图片的目录路径
 folder_path = "./data"
 make_dir(folder_path)
+
+"""
+接收图片
+"""
+# 1. 初始化图片编号
+i = 1
+print("开始监听图片消息")
+# 利用死循环,无限的获取图片
+while True:
+    if received_messages:
+        # 取出第一个消息
+        msg_data = received_messages.pop(0)
+        # 检查消息当中是否有包含 image 键
+        if 'image' in msg_data:
+            print(f"接收到的是图像:{msg_data}")
+            # 利用GetCvImage的消息数据转换成OpenCV可以读取的图像格式
+            image = GetCvImage(msg_data,'image')
+            # 将图片存储到指定的目录
+            cv2.imwrite(folder_path + "/" + f"img{i}.jpg",image)
+            # 提示信息
+            print(f"图片{i}已经保存了")
+            # 第二次循环的时候,让下标+1, 第二次i=2
+            i += 1
+    # 小延时
+    time.sleep(0.01)

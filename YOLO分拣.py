@@ -108,119 +108,115 @@ try:
                         cls = int(cls_tensor[0].item())
                         # 获取置信度
                         conf = float(result.boxes.conf[0].item())
-                        print(f"检测的类别: {cls}, 置信度: {conf:.4f}")
+                        print(f"检测类别: {cls}, 置信度: {conf:.4f}")
                         
-                        # 只处理置信度高于阈值的结果
-                        if conf > 0.5:  # 设置置信度阈值
-                            # 根据类别将水果放入对应的队列
+                        # 更新总检测次数
+                        detection_stats['total'] += 1
+                        
+                        # 设置置信度阈值，但不过于严格
+                        if conf > 0.3:  # 降低置信度阈值，减少漏检
+                            # 将列表编号加入到队列当中,等待传感器触发
+                            firstSwitch_dat.append(cls)
+                            print(f"检测结果已添加到队列，当前队列长度: {len(firstSwitch_dat)}")
+                            
+                            # 更新统计信息
                             if cls == 0:
-                                # 成熟水果，放入成熟水果队列
-                                firstSwitch_dat.append(cls)
                                 detection_stats['ripe'] += 1
-                                print(f"成熟水果已添加到队列，当前队列长度: {len(firstSwitch_dat)}")
                             elif cls == 1:
-                                # 半成熟水果，放入半成熟水果队列
-                                firstSwitch_dat2.append(cls)
                                 detection_stats['half_ripe'] += 1
-                                print(f"半成熟水果已添加到队列，当前队列长度: {len(firstSwitch_dat2)}")
                             elif cls == 2:
-                                # 生水果，放入生水果队列
-                                firstSwitch_dat3.append(cls)
                                 detection_stats['raw'] += 1
-                                print(f"生水果已添加到队列，当前队列长度: {len(firstSwitch_dat3)}")
-                            else:
-                                # 检测到意外的类别，打印警告
-                                print(f"警告：检测到意外的类别：{cls}")
-                            detection_stats['total'] += 1
-                            # 每10次检测打印一次统计信息
-                            if detection_stats['total'] % 10 == 0:
-                                print(f"[统计信息] 总检测: {detection_stats['total']}, 成熟: {detection_stats['ripe']}, 半成熟: {detection_stats['half_ripe']}, 生: {detection_stats['raw']}, 低置信度: {detection_stats['low_confidence']}")
                         else:
                             print(f"检测结果置信度过低，忽略：{conf:.4f}")
                             detection_stats['low_confidence'] += 1
+                            
+                        # 每10次检测打印一次统计信息
+                        if detection_stats['total'] % 10 == 0:
+                            print(f"[统计信息] 总检测: {detection_stats['total']}, 成熟: {detection_stats['ripe']}, 半成熟: {detection_stats['half_ripe']}, 生: {detection_stats['raw']}, 低置信度: {detection_stats['low_confidence']}")
                     else:
                         print("没有检测到任何的物品")
                 else:
                     print("图像解码失败")
 
-            # 收到传感器的信号
+            # 收到第一个传感器的信号
             if 'first_switch' in json_msg:
                 # 读取传感器的状态
                 dat = json_msg['first_switch']
                 print(f"成熟水果传感器状态: {dat}")
                 # 当传感器被遮挡,一般就是False,表示有物体经过
                 if not dat:
-                    # 检查成熟水果队列是否有对应的水果分类结果
+                    # 检测队列是否对对应的水果分类结果
                     if firstSwitch_dat:
-                        # 取出最早的一个成熟水果分类结果(与当前到达的水果匹配)
+                        # 取出最早的一个水果分类结果(与当前到达的水果匹配)
                         cls_val = firstSwitch_dat.pop(0)
-                        print(f"处理成熟水果，队列剩余: {len(firstSwitch_dat)}")
-                        # 如果说这个编号是0,成熟水果
+                        print(f"处理水果，类别: {cls_val}, 队列剩余: {len(firstSwitch_dat)}")
+                        # 如果说这个编号是0,成熟水果 - 推杆2
                         if cls_val == 0:
-                            # 发送推出指令,控制红色的推杆
+                            # 发送推出指令,控制第二个推杆（成熟苹果）
                             print("执行：推出成熟水果")
-                            client.publish("aa",json.dumps({"rod_control":"second_push"}))
+                            client.publish("aa", json.dumps({"rod_control":"second_push"}))
                             time.sleep(0.5)
-                            client.publish("aa",json.dumps({"rod_control":"second_pull"}))
+                            client.publish("aa", json.dumps({"rod_control":"second_pull"}))
                         else:
-                            # 不应该出现这种情况，但为了安全起见
-                            print(f"警告：成熟水果传感器处检测到非成熟水果，类别：{cls_val}")
+                            # 非成熟水果,暂存第二个队列当中
+                            firstSwitch_dat2.append(cls_val)
+                            print(f"非成熟水果传递到下一队列: {cls_val}, 队列长度: {len(firstSwitch_dat2)}")
                     else:
                         # 传感器触发了,但是没有对应识别结果
                         print("警告,成熟水果传感器触发,但是没有对应的分类数据")
-            
-            # 处理第二个传感器（半成熟水果位置）
+
+            # 收到第二个传感器的信号
             if 'second_switch' in json_msg:
                 # 读取传感器的状态
                 dat = json_msg['second_switch']
                 print(f"半成熟水果传感器状态: {dat}")
-                # 当传感器被遮挡,一般就是False,表示有物体经过
+                # 当传感器被遮挡,表示有物体经过
                 if not dat:
-                    # 检查半成熟水果队列是否有对应的水果分类结果
+                    # 检测第二个队列是否有分类结果
                     if firstSwitch_dat2:
-                        # 取出最早的一个半成熟水果分类结果(与当前到达的水果匹配)
+                        # 取出最早的一个水果分类结果
                         cls_val = firstSwitch_dat2.pop(0)
-                        print(f"处理半成熟水果，队列剩余: {len(firstSwitch_dat2)}")
-                        # 如果说这个编号是1,半成熟水果
+                        print(f"处理水果，类别: {cls_val}, 队列剩余: {len(firstSwitch_dat2)}")
+                        # 如果是半成熟苹果（class=1）- 推杆3
                         if cls_val == 1:
-                            # 发送推出指令,控制三号推杆
+                            # 发送推出指令,控制第三个推杆（半成熟苹果）
                             print("执行：推出半成熟水果")
-                            client.publish("aa",json.dumps({"rod_control":"third_push"}))
+                            client.publish("aa", json.dumps({"rod_control":"third_push"}))
                             time.sleep(0.5)
-                            client.publish("aa",json.dumps({"rod_control":"third_pull"}))
+                            client.publish("aa", json.dumps({"rod_control":"third_pull"}))
                         else:
-                            # 不应该出现这种情况，但为了安全起见
-                            print(f"警告：半成熟水果传感器处检测到非半成熟水果，类别：{cls_val}")
+                            # 生苹果,暂存第三个队列当中
+                            firstSwitch_dat3.append(cls_val)
+                            print(f"生水果传递到下一队列: {cls_val}, 队列长度: {len(firstSwitch_dat3)}")
                     else:
                         # 传感器触发了,但是没有对应识别结果
                         print("警告,半成熟水果传感器触发,但是没有对应的分类数据")
-            
-            # 处理第三个传感器（生水果位置）
+
+            # 收到第三个传感器的信号
             if 'third_switch' in json_msg:
                 # 读取传感器的状态
                 dat = json_msg['third_switch']
                 print(f"生水果传感器状态: {dat}")
-                # 当传感器被遮挡,一般就是False,表示有物体经过
+                # 当传感器被遮挡,表示有物体经过
                 if not dat:
-                    # 检查生水果队列是否有对应的水果分类结果
+                    # 检测第三个队列是否有分类结果
                     if firstSwitch_dat3:
-                        # 取出最早的一个生水果分类结果(与当前到达的水果匹配)
+                        # 取出最早的一个水果分类结果
                         cls_val = firstSwitch_dat3.pop(0)
-                        print(f"处理生水果，队列剩余: {len(firstSwitch_dat3)}")
-                        # 如果说这个编号是2,生水果
+                        print(f"处理水果，类别: {cls_val}, 队列剩余: {len(firstSwitch_dat3)}")
+                        # 如果是生苹果（class=2）- 推杆4
                         if cls_val == 2:
-                            # 发送推出指令,控制四号推杆
+                            # 发送推出指令,控制第四个推杆（生苹果）
                             print("执行：推出生水果")
-                            client.publish("aa",json.dumps({"rod_control":"fourth_push"}))
+                            client.publish("aa", json.dumps({"rod_control":"fourth_push"}))
                             time.sleep(0.5)
-                            client.publish("aa",json.dumps({"rod_control":"fourth_pull"}))
+                            client.publish("aa", json.dumps({"rod_control":"fourth_pull"}))
                         else:
-                            # 不应该出现这种情况，但为了安全起见
-                            print(f"警告：生水果传感器处检测到非生水果，类别：{cls_val}")
+                            # 未知类别，默认处理
+                            print(f"未知类别苹果: {cls_val}")
                     else:
                         # 传感器触发了,但是没有对应识别结果
                         print("警告,生水果传感器触发,但是没有对应的分类数据")
-
         time.sleep(0.01)
 # 一旦出现异常
 except KeyboardInterrupt:
